@@ -20,73 +20,85 @@ namespace SmartHomeLightSwitcher
 {
     public partial class MainWindow : Window
     {
+        // Размер буфера для принимаемых данных.
         private static readonly int BUFFER_SIZE = 8192;
-
+        // Разделитель между аргументом и значением элемента данных.
         private static readonly char DELIMITER = ';';
-
+        // Надпись элемента интерфейса.
         private static readonly string IPADDRESS_LOG_LABEL = "IP Address: ";
-
+        // Надпись элемента интерфейса.
         private static readonly string PORT_LOG_LABEL = "Port: ";
+        // Минимальное и максимальное значения используемого порта.
         private static readonly int MINIMAL_PORT_VALUE = 1024;
         private static readonly int MAXIMAL_PORT_VALUE = 49151;
-
+        // Надпись элемента интерфейса.
         private static readonly string CONNECTION_LOG_LABEL = "Connection: ";
+        // Состояния подключения.
         private static readonly string CONNECTION_UP = "up";
         private static readonly string CONNECTION_WAIT = "wait";
         private static readonly string CONNECTION_DOWN = "down";
         private static readonly string CONNECTION_ERR = "err";
-
+        // Метка устройства для журнала.
         private static readonly string LIGHT_SWITCHER_LOG_LABEL = "Light Switcher: ";
-
+        // Метка сети для журнала.
         private static readonly string NETWORK_LOG_LABEL = "Network: ";
-
+        // Аргумент типа устройства.
         private static readonly string NETWORK_DEVICE_ARG = "Device: ";
+        // Аргумент состояния света.
         private static readonly string NETWORK_LIGHTS_ARG = "Lights: ";
+        // Аргумент метода для исполнения.
         private static readonly string NETWORK_METHOD_TO_INVOKE_ARG = "Method: ";
+        // Аргумент состояния работы устройства.
         private static readonly string NETWORK_STATUS_ARG = "Status: ";
-
+        // Метод для переключения состояния света.
         private static readonly string NETWORK_LIGHT_SWITCHER_METHOD_TO_SWITCH = "SWITCH";
+        // Метод для отключения устройства.
         private static readonly string NETWORK_METHOD_TO_DISCONNECT = "DISCONNECT";
+        // Метод для запроса состояния работы устройства.
         private static readonly string NETWORK_METHOD_TO_REQUEST_STATUS = "REQUEST_STATUS";
-
+        // Состояние нормально функционирующего устройства.
         private static readonly int DEVICE_STATUS_UP = 42;
-
+        // Подробный уровень логгирования.
         private bool _VerboseLogging;
+        // Автоматическая прокрутка журнала.
         private bool _ShouldScrollToEnd;
 
+        // Сокет программы.
         private TcpClient _Socket;
-
+        // Поток, принимающий и обрабатывающий данные от сервера.
         private Thread _ListenerThread;
-
+        // Мьютекс для синхронизации
         private Mutex _DataMutex;
-
+        // Кэш принятых данных.
         private List<string> _Cache;
-
+        // IP-адрес и порт сервера.
         private IPAddress _IPAddress;
         private int _Port;
-
+        // Состояние света.
         private bool _Lights;
 
         public MainWindow()
         {
             InitializeComponent();
-
+            // Инициализация и настройка программы.
             Init();
             Configure();
         }
-
+        // Инициализация объектов.
         private void Init()
         {
             _DataMutex = new Mutex();
 
             _Cache = new List<string>();
         }
-
+        // Настройка объектов.
         private void Configure()
         {
+            // По умолчанию свет выключен.
             _Lights = false;
+            // Обновить интерфейс.
             UpdateLightsStatus();
-
+            // По умолчанию нерасширенное логгирование.
             _VerboseLogging = false;
             VerobseLoggingCheckBox.IsChecked = _VerboseLogging;
             VerobseLoggingCheckBox.Checked += (sender, e) =>
@@ -97,7 +109,7 @@ namespace SmartHomeLightSwitcher
             {
                 _VerboseLogging = false;
             };
-
+            // Автоматически прокручивать журнал.
             _ShouldScrollToEnd = true;
             ScrollToEndCheckBox.IsChecked = _ShouldScrollToEnd;
             ScrollToEndCheckBox.Checked += (sender, e) =>
@@ -108,8 +120,8 @@ namespace SmartHomeLightSwitcher
             {
                 _ShouldScrollToEnd = false;
             };
-
             /// App
+            // Закрытие приложения.
             Closed += (sender, e) =>
             {
                 Disconnect();
@@ -117,12 +129,13 @@ namespace SmartHomeLightSwitcher
             };
 
             /// Controls
+            // Кнопка подключения.
             ConnectButton.IsEnabled = true;
             ConnectButton.Click += (sender, e) =>
             {
                 Connect();
             };
-
+            // Кнопка отключения.
             DisconnectButton.IsEnabled = false;
             DisconnectButton.Click += (sender, e) =>
             {
@@ -131,19 +144,21 @@ namespace SmartHomeLightSwitcher
                 /// Bad idea due to bad design.
                 _Socket = new TcpClient();
             };
-
+            // Кнопка переключения состояния света.
             SwitchButton.Click += (sender, e) =>
             {
+                // Изменить состояние и обновить интерфейс.
                 _Lights = !_Lights;
                 UpdateLightsStatus();
 
                 if (_Socket != null && _Socket.Connected)
                 {
+                    // Отправить новое состояние на сервер.
                     SendLightsStatus();
                 }
             };
         }
-
+        // Настройка потока, принимающего данные от сервера.
         private Thread ConfigureListenerThread()
         {
             return new Thread(new ThreadStart(delegate ()
@@ -152,9 +167,10 @@ namespace SmartHomeLightSwitcher
                 {
                     while (_Socket != null && _Socket.Connected)
                     {
+                        // Принять данные.
                         byte[] bytes = new byte[BUFFER_SIZE];
                         Receive(ref _Socket, ref bytes);
-
+                        // Закэшировать и обработать данные.
                         ProcessData(CacheData(Encoding.Unicode.GetString(bytes), ref _Cache));
                         ProcessData(ref _Cache);
                     }
@@ -170,10 +186,12 @@ namespace SmartHomeLightSwitcher
             }));
         }
 
+        // Настройка потока, осуществляющего подключение.
         private Thread ConfigureConnectThread()
         {
             return new Thread(new ThreadStart(delegate ()
             {
+                // Обновить интерфейс на ожидание подключения.
                 Dispatcher.Invoke(delegate ()
                 {
                     ConnectionStateLabel.Content = CONNECTION_WAIT;
@@ -184,6 +202,7 @@ namespace SmartHomeLightSwitcher
 
                 try
                 {
+                    // Попытка подключения к указанному адресу и порту.
                     _Socket = new TcpClient();
                     _Socket.Connect(_IPAddress, _Port);
 
@@ -193,15 +212,17 @@ namespace SmartHomeLightSwitcher
                     });
                     Log(CONNECTION_LOG_LABEL +
                         string.Format("Connected to {0}:{1}\n", _IPAddress.ToString(), _Port));
-
+                    // Отправить информацию о себе.
                     SendInfo();
+                    // Отправить состояние света.
                     SendLightsStatus();
-
+                    // Запустить поток, получающий и обрабатывающий данные от сервера.
                     _ListenerThread = ConfigureListenerThread();
                     _ListenerThread.Start();
                 }
                 catch (SocketException exc)
                 {
+                    // Ошибка при подключении.
                     Dispatcher.Invoke(delegate ()
                     {
                         ConnectionStateLabel.Content = CONNECTION_ERR;
@@ -227,8 +248,10 @@ namespace SmartHomeLightSwitcher
             }));
         }
 
+        // Подключение к серверу.
         private void Connect()
         {
+            // Прочитать IP-адрес.
             try
             {
                 _IPAddress = IPAddress.Parse(AddressTextBox.Text);
@@ -238,7 +261,7 @@ namespace SmartHomeLightSwitcher
                 Log(IPADDRESS_LOG_LABEL + exc.Message + '\n');
                 return;
             }
-
+            // Прочитать порт.
             try
             {
                 _Port = int.Parse(PortTextBox.Text);
@@ -254,20 +277,21 @@ namespace SmartHomeLightSwitcher
                 Log(PORT_LOG_LABEL + exc.Message + '\n');
                 return;
             }
-
+            // Запустить поток, осуществляющий подключение.
             Thread connectThread = ConfigureConnectThread();
             connectThread.Start();
         }
-
+        // Отключение от сервера.
         private void Disconnect()
         {
+            // Отправить метод для отключения.
             SendMethodToInvoke(NETWORK_METHOD_TO_DISCONNECT);
-
+            // Завершить поток, обрабатывающий данные от сервера.
             if (_ListenerThread.IsAlive)
             {
                 _ListenerThread.Abort();
             }
-
+            // Закрыть сокет.
             if (_Socket != null)
             {
                 if (_Socket.Connected)
@@ -279,7 +303,7 @@ namespace SmartHomeLightSwitcher
                     _Socket.Dispose();
                 }
             }
-
+            // Настроить интерфейс.
             SwitchButtonsOnConnectionStatusChanged(false);
             if (_VerboseLogging)
             {
@@ -287,6 +311,7 @@ namespace SmartHomeLightSwitcher
             }
         }
 
+        // Настроить кнопки интерфейса в зависимости от статуса подключения.
         private void SwitchButtonsOnConnectionStatusChanged(bool isConnected)
         {
             Dispatcher.Invoke(delegate ()
@@ -297,7 +322,7 @@ namespace SmartHomeLightSwitcher
                 DisconnectButton.IsEnabled = isConnected;
             });
         }
-
+        // Отправить данные.
         private void Send(byte[] bytes)
         {
             if (_Socket == null)
@@ -325,7 +350,7 @@ namespace SmartHomeLightSwitcher
                 }
             }
         }
-
+        // Принять данные.
         private void Receive(ref TcpClient socket, ref byte[] bytes)
         {
             if (_Socket == null)
@@ -352,7 +377,7 @@ namespace SmartHomeLightSwitcher
                 }
             }
         }
-
+        // Отправить информацию об устройстве.
         private void SendInfo()
         {
             byte[] bytes = Encoding.Unicode.GetBytes(NETWORK_DEVICE_ARG + "LightSwitcher" + DELIMITER);
@@ -360,7 +385,7 @@ namespace SmartHomeLightSwitcher
 
             Log(NETWORK_LOG_LABEL + "Sent info" + '\n');
         }
-
+        // Отправить состояние света.
         private void SendLightsStatus()
         {
             byte[] bytes = Encoding.Unicode.GetBytes(string.Format(NETWORK_LIGHTS_ARG + "{0}" + DELIMITER, _Lights));
@@ -371,7 +396,7 @@ namespace SmartHomeLightSwitcher
                 Log(NETWORK_LOG_LABEL + string.Format("Sent lights status: {0}", _Lights) + '\n');
             }
         }
-
+        // Отправить состояние работы устройства.
         private void SendStatus()
         {
             byte[] bytes = Encoding.Unicode.GetBytes(string.Format(NETWORK_STATUS_ARG + "{0}" + DELIMITER, DEVICE_STATUS_UP));
@@ -382,7 +407,7 @@ namespace SmartHomeLightSwitcher
                 Log(NETWORK_LOG_LABEL + string.Format("Sent status: {0}", DEVICE_STATUS_UP) + '\n');
             }
         }
-
+        // Отправить метод для выполнения.
         private void SendMethodToInvoke(string method)
         {
             byte[] bytes = Encoding.Unicode.GetBytes(NETWORK_METHOD_TO_INVOKE_ARG + method + DELIMITER);
@@ -393,7 +418,7 @@ namespace SmartHomeLightSwitcher
                 Log(NETWORK_LOG_LABEL + "Sent method: " + method + '\n');
             }
         }
-
+        // Закэшировать данные (подробно описано у сервера).
         string CacheData(string data, ref List<string> cache)
         {
             int delimiterIdx = data.IndexOf(DELIMITER);
@@ -409,6 +434,7 @@ namespace SmartHomeLightSwitcher
             return first;
         }
 
+        // Обработать элемент данных.
         private void ProcessData(string data)
         {
             if (string.IsNullOrEmpty(data) || data.Equals(""))
@@ -417,11 +443,12 @@ namespace SmartHomeLightSwitcher
             }
 
             int idx;
+            // Метод для исполнения.
             if ((idx = data.IndexOf(NETWORK_METHOD_TO_INVOKE_ARG)) >= 0)
             {
                 int startIdx = idx + NETWORK_METHOD_TO_INVOKE_ARG.Length, endIdx = data.IndexOf(DELIMITER);
                 string method = data.Substring(startIdx, endIdx - startIdx);
-
+                // Переключить состояние света.
                 if (!string.IsNullOrEmpty(method) && method.Equals(NETWORK_LIGHT_SWITCHER_METHOD_TO_SWITCH))
                 {
                     Log(NETWORK_LOG_LABEL + "Lights switch was requested." + '\n');
@@ -431,6 +458,7 @@ namespace SmartHomeLightSwitcher
 
                     SendLightsStatus();
                 }
+                // Запрос состояние работы устройства.
                 else if (!string.IsNullOrEmpty(method) && method.Equals(NETWORK_METHOD_TO_REQUEST_STATUS))
                 {
                     if (_VerboseLogging)
@@ -446,7 +474,7 @@ namespace SmartHomeLightSwitcher
                 Log(string.Format(NETWORK_LOG_LABEL + "Received unknown data: \"{0}\"" + '\n', data));
             }
         }
-
+        // Обработать список элементов данных.
         private void ProcessData(ref List<string> dataSet)
         {
             _DataMutex.WaitOne();
@@ -460,7 +488,7 @@ namespace SmartHomeLightSwitcher
 
             _DataMutex.ReleaseMutex();
         }
-
+        // Обновить интерфейс в зависимости от состояние света.
         private void UpdateLightsStatus()
         {
             Dispatcher.Invoke(delegate ()
@@ -469,6 +497,7 @@ namespace SmartHomeLightSwitcher
             });
         }
 
+        // Добавить запись в журнал.
         private void Log(string info)
         {
             try
